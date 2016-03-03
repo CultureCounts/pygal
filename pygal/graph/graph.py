@@ -141,11 +141,6 @@ class Graph(PublicApi):
                 truncation = max(truncation, 1)
 
         lastlabel = self._x_labels[-1][0]
-        if 0 not in [label[1] for label in self._x_labels]:
-            self.svg.node(axis, 'path',
-                          d='M%f %f v%f' % (0, 0, self.view.height),
-                          class_='line')
-            lastlabel = None
 
         for label, position in self._x_labels:
             if self.horizontal:
@@ -160,13 +155,14 @@ class Graph(PublicApi):
                 continue
             y = self.view.height + 5
             last_guide = (self._y_2nd_labels and label == lastlabel)
-            self.svg.node(
-                guides, 'path',
-                d='M%f %f v%f' % (x or 0, 0, self.view.height),
-                class_='%s%s%sline' % (
-                    'axis ' if label == "0" else '',
-                    'major ' if major else '',
-                    'guide ' if position != 0 and not last_guide else ''))
+            if label not in ["0.0", "0", "0%"]:
+                self.svg.node(
+                    guides, 'path',
+                    d='M%f %f v%f' % (x or 0, 0, self.view.height),
+                    class_='%s%s%sline' % (
+                        'axis ' if label == "0" else '',
+                        'major ' if major else '',
+                        'guide ' if (position != 0 or isinstance(self, pygal.Line)) and not last_guide else ''))
             y += .5 * self.style.label_font_size + 5
             text = self.svg.node(
                 guides, 'text',
@@ -194,9 +190,9 @@ class Graph(PublicApi):
         if self._y_2nd_labels and 0 not in [
                 label[1] for label in self._x_labels]:
             self.svg.node(axis, 'path',
-                          d='M%f %f v%f' % (
-                              self.view.width, 0, self.view.height),
-                          class_='line')
+                            d='M%f %f v%f' % (
+                            self.view.width, 0, self.view.height),
+                            class_='line')
 
         if self._x_2nd_labels:
             secondary_ax = self.svg.node(
@@ -234,22 +230,11 @@ class Graph(PublicApi):
 
         axis = self.svg.node(self.nodes['plot'], class_="axis y")
 
-        if (0 not in [label[1] for label in self._y_labels] and
-                self.show_y_guides):
-            self.svg.node(
-                axis, 'path',
-                d='M%f %f h%f' % (
-                    0, 0 if self.inverse_y_axis else self.view.height,
-                    self.view.width),
-                class_='line'
-            )
-
         for label, position in self._y_labels:
             if self.horizontal:
                 major = label in self._y_labels_major
             else:
                 major = position in self._y_labels_major
-
             if not (self.show_minor_y_labels or major):
                 continue
             guides = self.svg.node(axis, class_='%sguides' % (
@@ -259,7 +244,7 @@ class Graph(PublicApi):
             y = self.view.y(position)
             if not y:
                 continue
-            if self.show_y_guides:
+            if self.show_y_guides and (label not in ["0.0", "0", "0%"]):
                 self.svg.node(
                     guides, 'path',
                     d='M%f %f h%f' % (0, y, self.view.width),
@@ -283,6 +268,7 @@ class Graph(PublicApi):
                     text.attrib['class'] = ' '.join(
                         (text.attrib['class'] and text.attrib['class'].split(
                             ' ') or []) + ['backwards'])
+
             self.svg.node(
                 guides, 'title',
             ).text = self._format(position)
@@ -311,7 +297,7 @@ class Graph(PublicApi):
                     if 90 < self.y_label_rotation < 270:
                         text.attrib['class'] = ' '.join(
                             (text.attrib['class'] and
-                             text.attrib['class'].split(
+                            text.attrib['class'].split(
                                 ' ') or []) + ['backwards'])
 
     def _legend(self):
@@ -319,7 +305,18 @@ class Graph(PublicApi):
         if not self.show_legend:
             return
         truncation = self.truncate_legend
-        if self.legend_at_bottom:
+        if self.legend_at_top:
+            x = self.margin_box.left
+            y = 0
+            cols = self.legend_at_top_columns or ceil(
+                sqrt(self._order)) or 1
+
+            if not truncation:
+                available_space = self.view.width / cols - (
+                    self.legend_box_size + 5)
+                truncation = reverse_text_len(
+                    available_space, self.style.legend_font_size)
+        elif self.legend_at_bottom:
             x = self.margin_box.left + self.spacing
             y = (self.margin_box.top + self.view.height +
                  self._x_title_height +
@@ -375,6 +372,7 @@ class Graph(PublicApi):
                 self.nodes['graph'], class_='legends',
                 transform='translate(%d, %d)' % (x, y))
 
+        previous_x = None
         for (global_serie_number, (i, (title, is_secondary))) in gen:
 
             col = i % cols
@@ -384,9 +382,15 @@ class Graph(PublicApi):
                 secondary_legends if is_secondary else legends,
                 class_='legend reactive activate-serie',
                 id="activate-serie-%d" % global_serie_number)
+            x = col * x_step
+            if self.legend_at_top and self._x_labels:
+                _, w = get_texts_box(
+                    cut(self._x_labels), self.style.label_font_size)
+                if not col == 0:
+                    x = previous_x + (self.legend_box_size + 5) + w + 5
             self.svg.node(
                 legend, 'rect',
-                x=col * x_step,
+                x=x,
                 y=1.5 * row * h + (
                     self.style.legend_font_size - self.legend_box_size
                     if self.style.legend_font_size > self.legend_box_size
@@ -397,6 +401,7 @@ class Graph(PublicApi):
                 class_="color-%d reactive" % (
                     global_serie_number % len(self.style.colors))
             )
+            previous_x = x
 
             if isinstance(title, dict):
                 node = decorate(self.svg, legend, title)
@@ -407,7 +412,7 @@ class Graph(PublicApi):
             truncated = truncate(title, truncation)
             self.svg.node(
                 node, 'text',
-                x=col * x_step + self.legend_box_size + 5,
+                x=x + self.legend_box_size + 5,
                 y=1.5 * row * h + .5 * h + .3 * self.style.legend_font_size
             ).text = truncated
 
@@ -602,7 +607,14 @@ class Graph(PublicApi):
                          if isinstance(serie.title, dict)
                          else serie.title for serie in series_group]),
                     self.style.legend_font_size)
-                if self.legend_at_bottom:
+                if self.legend_at_top:
+                    h_max = max(h, self.legend_box_size)
+                    cols = (self._order // self.legend_at_top_columns
+                            if self.legend_at_top_columns
+                            else ceil(sqrt(self._order)) or 1)
+                    self.margin_box.top += self.spacing + h_max * round(
+                        cols - 1) * 1.5 + max(h_max, 20)
+                elif self.legend_at_bottom:
                     h_max = max(h, self.legend_box_size)
                     cols = (self._order // self.legend_at_bottom_columns
                             if self.legend_at_bottom_columns
