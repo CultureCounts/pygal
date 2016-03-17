@@ -218,6 +218,10 @@ class CommonConfig(BaseConfig):
     inner_radius = Key(
         0, float, "Look", "Piechart inner radius (donut), must be <.9")
 
+    graph_type = Key(
+        "Bar", str, "Misc", "Graph Type"
+    )
+
 
 class Config(CommonConfig):
 
